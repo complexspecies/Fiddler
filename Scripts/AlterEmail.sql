@@ -13,7 +13,7 @@ SELECT Email -- To Verify/See Results
 FROM Employees
 WHERE Email IS NOT NULL;
 
-RoLLBACK; -- Rollback to undo changes if needed
---commit; -- Commit changes if everything is correct
+RoLLBACK; -- Rollback 
+--commit; 
 
 

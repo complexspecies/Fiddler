@@ -1,7 +1,9 @@
-﻿using Fiddler.Factories;
+﻿using Fiddler.Contracts;
+using Fiddler.Factories;
 using Fiddler.Like_System;
 using Fiddler.Models;
 using Fiddler.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Fiddler
 {
@@ -16,29 +18,32 @@ namespace Fiddler
             Console.WriteLine(result);
 
             //Refactoring Demo
-            var partsService = new PartsService();
-            var robotService = new RobotService();
-            var carService = new CarService();
+            var serviceProvider = new ServiceCollection()
+                .AddSingleton<IPartsService, PartsService>()
+                .AddSingleton<IRobotService, RobotService>()
+                .AddSingleton<ICarService, CarService>()
+                .AddSingleton<Factory>()
+                .BuildServiceProvider();
 
-            var factory = new Factory(partsService, robotService, carService);
+            var factory = serviceProvider.GetRequiredService<Factory>();
 
+            // Build vehicles
             Console.WriteLine("Building robots:");
             var robotDog = factory.BuildVehicle<Robot>(RobotType.RoboticDog);
-            Console.WriteLine($"Built Robotic Dog: {robotDog != null}");
+            Console.WriteLine($"Built {robotDog.GetType()}");
 
             var robotCat = factory.BuildVehicle<Robot>(RobotType.RoboticCat);
-            Console.WriteLine($"Built Robotic Cat: {robotCat != null}");
+            Console.WriteLine($"Built {robotCat.GetType()}");
 
             Console.WriteLine("\nBuilding cars:");
             var toyota = factory.BuildVehicle<Car>(CarType.Toyota);
-            Console.WriteLine($"Built Toyota: {toyota != null}");
+            Console.WriteLine($"Built {toyota.GetType()}");
 
             var ford = factory.BuildVehicle<Car>(CarType.Ford);
-            Console.WriteLine($"Built Ford: {ford != null}");
+            Console.WriteLine($"Built {ford.GetType()}");
 
-            Console.WriteLine("\nTrying to build unknown type:");
-            var unknown = factory.BuildVehicle<Robot>((RobotType)99);
-            Console.WriteLine($"Result: {unknown?.GetType().Name ?? "null"}");
+            Console.WriteLine("\nPress any key to exit...");
+            Console.ReadKey();
         }
     }
 }
