@@ -103,3 +103,143 @@ class StandardBankTFIAClient:
         response.raise_for_status()
 
         return response.json()
+
+
+import time
+import uuid
+import requests
+from typing import Optional
+
+from django.conf import settings
+from django.core.cache import cache
+
+
+class StandardBankTFIAClient:
+    """
+    Standard Bank TFIA API client.
+    OAuth tokens are cached via django.core.cache.
+    """
+
+    TOKEN_EXPIRY_BUFFER_SECONDS = 30
+
+    def __init__(self, timeout: int = 30):
+        self.client_id = settings.STB_CLIENT_ID
+        self.client_secret = settings.STB_CLIENT_SECRET
+        self.auth_token_url = settings.STB_AUTH_TOKEN_URL
+        self.api_base_url = settings.STB_API_BASE_URL.rstrip("/")
+        self.timeout = timeout
+
+        self.token_cache_key = getattr(
+            settings,
+            "STB_TOKEN_CACHE_KEY",
+            "stb:tfia:access_token",
+        )
+        self.token_expiry_cache_key = f"{self.token_cache_key}:expiry"
+
+    # ------------------------------------------------------------------
+    # Authentication
+    # ------------------------------------------------------------------
+
+    def _authenticate(self) -> None:
+        payload = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "grant_type": "client_credentials",
+        }
+
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-XSRF-Header": "PingFederate",
+        }
+
+        response = requests.post(
+            self.auth_token_url,
+            data=payload,
+            headers=headers,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+
+        access_token = data["access_token"]
+        expires_in = int(data["expires_in"])
+
+        # Store absolute expiry timestamp
+        expiry_timestamp = (
+            int(time.time())
+            + expires_in
+            - self.TOKEN_EXPIRY_BUFFER_SECONDS
+        )
+
+        cache.set(self.token_cache_key, access_token, timeout=expires_in)
+        cache.set(self.token_expiry_cache_key, expiry_timestamp, timeout=expires_in)
+
+    def _get_access_token(self) -> str:
+        access_token = cache.get(self.token_cache_key)
+        expiry_timestamp = cache.get(self.token_expiry_cache_key)
+
+        if not access_token or not expiry_timestamp:
+            self._authenticate()
+            return cache.get(self.token_cache_key)
+
+        if int(time.time()) >= expiry_timestamp:
+            self._authenticate()
+            return cache.get(self.token_cache_key)
+
+        return access_token
+
+    # ------------------------------------------------------------------
+    # Headers
+    # ------------------------------------------------------------------
+
+    def _default_headers(self) -> dict:
+        return {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._get_access_token()}",
+            "X-IBM-Client-Id": self.client_id,
+            "X-IBM-Client-Secret": self.client_secret,
+            "x-fapi-interaction-id": str(uuid.uuid4()),
+        }
+
+    # ------------------------------------------------------------------
+    # API methods
+    # ------------------------------------------------------------------
+
+    def get_contribution_limits(
+        self,
+        client_id_type: str,
+        client_id: str,
+        query_date: Optional[str] = None,
+    ) -> dict:
+        endpoint = "/npextorg/extnonprod/tfia/contribution-limits"
+
+        params = {
+            "clientIdType": client_id_type,
+            "clientId": client_id,
+        }
+
+        if query_date:
+            params["queryDate"] = query_date
+
+        url = f"{self.api_base_url}{endpoint}"
+
+        response = requests.get(
+            url,
+            headers=self._default_headers(),
+            params=params,
+            timeout=self.timeout,
+        )
+
+        # Optional hardening: retry once on 401
+        if response.status_code == 401:
+            self._authenticate()
+            response = requests.get(
+                url,
+                headers=self._default_headers(),
+                params=params,
+                timeout=self.timeout,
+            )
+
+        response.raise_for_status()
+        return response.json()
