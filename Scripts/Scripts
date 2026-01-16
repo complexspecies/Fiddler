@@ -4,113 +4,6 @@ import requests
 from typing import Optional
 
 from django.conf import settings
-
-
-class StandardBankTFIAClient:
-    """
-    Client for Standard Bank TFIA APIs.
-    Configuration is loaded from application settings.
-    """
-
-    def __init__(self, timeout: int = 30):
-        self.client_id = settings.STB_CLIENT_ID
-        self.client_secret = settings.STB_CLIENT_SECRET
-        self.auth_token_url = settings.STB_AUTH_TOKEN_URL
-        self.api_base_url = settings.STB_API_BASE_URL.rstrip("/")
-        self.timeout = timeout
-
-        self._access_token: Optional[str] = None
-        self._token_expiry: Optional[float] = None
-
-    # ------------------------------------------------------------------
-    # Authentication
-    # ------------------------------------------------------------------
-
-    def _authenticate(self) -> None:
-        payload = {
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-            "grant_type": "client_credentials",
-        }
-
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-XSRF-Header": "PingFederate",
-        }
-
-        response = requests.post(
-            self.auth_token_url,
-            data=payload,
-            headers=headers,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-
-        data = response.json()
-
-        self._access_token = data["access_token"]
-        self._token_expiry = time.time() + int(data["expires_in"]) - 30
-
-    def _get_access_token(self) -> str:
-        if not self._access_token or not self._token_expiry:
-            self._authenticate()
-        elif time.time() >= self._token_expiry:
-            self._authenticate()
-
-        return self._access_token
-
-    # ------------------------------------------------------------------
-    # Headers
-    # ------------------------------------------------------------------
-
-    def _default_headers(self) -> dict:
-        return {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._get_access_token()}",
-            "X-IBM-Client-Id": self.client_id,
-            "X-IBM-Client-Secret": self.client_secret,
-            "x-fapi-interaction-id": str(uuid.uuid4()),
-        }
-
-    # ------------------------------------------------------------------
-    # API methods
-    # ------------------------------------------------------------------
-
-    def get_contribution_limits(
-        self,
-        client_id_type: str,
-        client_id: str,
-        query_date: Optional[str] = None,
-    ) -> dict:
-        endpoint = "/npextorg/extnonprod/tfia/contribution-limits"
-
-        params = {
-            "clientIdType": client_id_type,
-            "clientId": client_id,
-        }
-
-        if query_date:
-            params["queryDate"] = query_date
-
-        url = f"{self.api_base_url}{endpoint}"
-
-        response = requests.get(
-            url,
-            headers=self._default_headers(),
-            params=params,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-
-        return response.json()
-
-
-import time
-import uuid
-import requests
-from typing import Optional
-
-from django.conf import settings
 from django.core.cache import cache
 
 
@@ -243,3 +136,46 @@ class StandardBankTFIAClient:
 
         response.raise_for_status()
         return response.json()
+
+conn = http.client.HTTPSConnection("api-gatewaynp.standardbank.co.za")
+payload = ''
+headers = {
+    'Content-Type': 'application/json',
+    'X-IBM-Client-Id': '30d3651cd4974d13a7840d02be4e5a9c',
+    'X-IBM-Client-Secret': '24dBae80FA1F483BA399045A7e440040',
+    'x-fapi-interaction-id': str(uuid.uuid4()),
+    'Authorization': f'Bearer {data["access_token"]}'
+}
+path = "/npextorg/extnonprod/tfia/contributions?clientIdType=saxoClientId&clientId=32156854&fromDate=2025-03-01&toDate=2025-03-31"
+conn.request("GET", path, payload, headers)
+res = conn.getresponse()
+data = res.read()
+print(data.decode("utf-8"))
+
+example response;
+{
+    "Data": [
+        {
+            "ClientId": 32156854,
+            "ClientIdType": "saxoClientId",
+            "ContributionAccount": "TFIA12345678",
+            "ContributionDate": "2025-03-15",
+            "ContributionAccountCurrency": "ZAR",
+            "ContributionAmount": 5000,
+            "ContributionType": "Deposit",
+            "ContributionTransactionReference": "REF98765432",
+            "ContributionTransactionSource": "Shyft"
+        }
+    ],
+    "Pagination": {
+        "Next": "/contributions?clientIdType=saxoClientId&clientId=32156854&fromDate=2025-03-01&toDate=2025-03-31&pageSize=25&pageNumber=2",
+        "First": "/contributions?clientIdType=saxoClientId&clientId=32156854&fromDate=2025-03-01&toDate=2025-03-31&pageSize=25&pageNumber=1",
+        "Last": "/contributions?clientIdType=saxoClientId&clientId=32156854&fromDate=2025-03-01&toDate=2025-03-31&pageSize=25&pageNumber=4",
+        "PageNumber": 1,
+        "PageSize": 25,
+        "TotalItems": 80,
+        "TotalPages": 4,
+        "HasNext": true,
+        "HasPrevious": false
+    }
+}
