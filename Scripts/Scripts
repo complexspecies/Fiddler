@@ -179,3 +179,86 @@ example response;
         "HasPrevious": false
     }
 }
+
+
+from typing import Optional, Dict, Any
+from urllib.parse import urlencode
+
+
+    def get_contributions(
+        self,
+        client_id_type: str,
+        client_id: str,
+        from_date: str,
+        to_date: str,
+        page_size: int = 25,
+        page_number: int = 1,
+    ) -> Dict[str, Any]:
+        """
+        Retrieve paginated contributions and expose pagination
+        URLs that refer to THIS API, not the upstream gateway.
+        """
+
+        endpoint = "/npextorg/extnonprod/tfia/contributions"
+
+        upstream_params = {
+            "clientIdType": client_id_type,
+            "clientId": client_id,
+            "fromDate": from_date,
+            "toDate": to_date,
+            "pageSize": page_size,
+            "pageNumber": page_number,
+        }
+
+        upstream_url = f"{self.api_base_url}{endpoint}"
+
+        response = requests.get(
+            upstream_url,
+            headers=self._default_headers(),
+            params=upstream_params,
+            timeout=self.timeout,
+        )
+
+        if response.status_code == 401:
+            self._authenticate()
+            response = requests.get(
+                upstream_url,
+                headers=self._default_headers(),
+                params=upstream_params,
+                timeout=self.timeout,
+            )
+
+        response.raise_for_status()
+        payload = response.json()
+
+        pagination = payload.get("Pagination", {})
+        data = payload.get("Data", [])
+
+        total_items = pagination.get("TotalItems", 0)
+        has_next = pagination.get("HasNext", False)
+        has_previous = pagination.get("HasPrevious", False)
+
+        def _build_public_url(target_page: Optional[int]) -> Optional[str]:
+            if not target_page:
+                return None
+
+            query = urlencode({
+                "clientIdType": client_id_type,
+                "clientId": client_id,
+                "fromDate": from_date,
+                "toDate": to_date,
+                "pageSize": page_size,
+                "pageNumber": target_page,
+            })
+
+            return f"{settings.PUBLIC_API_BASE_URL}/contributions?{query}"
+
+        next_page = page_number + 1 if has_next else None
+        previous_page = page_number - 1 if has_previous else None
+
+        return {
+            "count": total_items,
+            "next": _build_public_url(next_page),
+            "previous": _build_public_url(previous_page),
+            "data": data,
+        }
